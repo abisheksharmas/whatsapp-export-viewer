@@ -95,7 +95,9 @@
 
   function parseContent(content) {
     const separator = content.indexOf(": ");
-    if (separator > 0) {
+    const systemWithColon = /^(welcome to the group|messages and calls are end-to-end encrypted|security code changed|this group's icon was changed|this group|you joined using this group's invite link):/i;
+
+    if (separator > 0 && !systemWithColon.test(content)) {
       return {
         sender: content.slice(0, separator).trim(),
         text: content.slice(separator + 2),
@@ -108,6 +110,18 @@
       text: content.trim(),
       isSystem: true,
     };
+  }
+
+  function extractUrls(text) {
+    return [...String(text || "").matchAll(/https?:\/\/[^\s<>()\]]+/gi)]
+      .map((match) => match[0].replace(/[.,;!?]+$/g, ""));
+  }
+
+  function cleanSenderName(sender) {
+    return String(sender || "")
+      .replace(/[\u200e\u200f\u202a-\u202e]/g, "")
+      .replace(/^~\s*/, "")
+      .trim();
   }
 
   function findMediaReference(text, mediaLookup) {
@@ -203,6 +217,7 @@
         mediaName: mediaReference ? mediaReference.name : "",
         mediaType,
         missingMedia: Boolean(mediaReference && mediaReference.missing),
+        urls: extractUrls(message.rawText),
       };
     });
   }
@@ -228,6 +243,8 @@
   }
 
   global.WhatsAppArchive = {
+    cleanSenderName,
+    extractUrls,
     inferMediaType,
     normalizeFilename,
     parseChatExport,

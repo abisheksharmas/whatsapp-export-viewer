@@ -6,6 +6,8 @@ const ARCHIVE_STORE = "archives";
 const MEDIA_STORE = "media";
 const CURRENT_ARCHIVE_KEY = "wa-current-archive";
 const {
+  cleanSenderName,
+  extractUrls,
   inferMediaType,
   normalizeFilename,
   parseChatExport,
@@ -23,7 +25,12 @@ const elements = {
   statMessages: document.querySelector("#statMessages"),
   statMedia: document.querySelector("#statMedia"),
   statSenders: document.querySelector("#statSenders"),
-  statDates: document.querySelector("#statDates"),
+  statLinks: document.querySelector("#statLinks"),
+  aliasSearch: document.querySelector("#aliasSearch"),
+  aliasList: document.querySelector("#aliasList"),
+  saveAliases: document.querySelector("#saveAliases"),
+  linkList: document.querySelector("#linkList"),
+  insightList: document.querySelector("#insightList"),
   chatTitle: document.querySelector("#chatTitle"),
   chatSubtitle: document.querySelector("#chatSubtitle"),
   searchInput: document.querySelector("#searchInput"),
@@ -41,6 +48,7 @@ const state = {
   archive: null,
   mediaUrls: new Map(),
   mediaRecords: new Map(),
+  annotationSaveTimer: null,
 };
 
 function openDatabase() {
@@ -144,6 +152,261 @@ function archiveTitleFromFile(file) {
   return file.name.replace(/\.txt$/i, "").replace(/[_-]+/g, " ").trim() || "WhatsApp Export";
 }
 
+function isPhoneSender(sender) {
+  return /^\+?\d|^\+/.test(String(sender || "").trim());
+}
+
+function autoAliasForSender(sender) {
+  if (isPhoneSender(sender)) return "";
+  const cleaned = cleanSenderName(sender);
+  return cleaned === sender ? "" : cleaned;
+}
+
+function ensureArchiveShape(archive) {
+  archive.senderAliases ||= {};
+  archive.annotations ||= {};
+  archive.links ||= collectLinks(archive.messages || []);
+  archive.insights ||= buildInsights(archive.messages || [], archive.links || []);
+  archive.stats ||= summarizeArchive(archive.messages || [], 0);
+  archive.stats.links = archive.links.length;
+  return archive;
+}
+
+function collectLinks(messages) {
+  const links = [];
+  const seen = new Set();
+
+  messages.forEach((message) => {
+    const urls = message.urls && message.urls.length ? message.urls : extractUrls(message.rawText || message.text);
+    urls.forEach((url) => {
+      const key = `${message.id}:${url}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      links.push({
+        id: key,
+        messageId: message.id,
+        sender: message.sender,
+        timestamp: message.timestamp,
+        url,
+        host: safeHost(url),
+      });
+    });
+  });
+
+  return links;
+}
+
+function safeHost(url) {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return "link";
+  }
+}
+
+function buildInsights(messages, links) {
+  const senderCounts = new Map();
+  const keywordCounts = new Map();
+  const mediaCounts = { image: 0, video: 0, audio: 0, document: 0 };
+  const stopWords = new Set([
+    "about", "after", "also", "because", "been", "from", "have", "just", "like", "more", "only", "that", "this", "with", "what", "when", "will", "your", "http", "https", "media", "omitted",
+  ]);
+
+  messages.forEach((message) => {
+    if (!message.isSystem) {
+      senderCounts.set(message.sender, (senderCounts.get(message.sender) || 0) + 1);
+    }
+    if (mediaCounts[message.mediaType] !== undefined) mediaCounts[message.mediaType] += 1;
+    String(message.text || "")
+      .toLowerCase()
+      .match(/[a-z][a-z0-9-]{3,}/g)
+      ?.forEach((word) => {
+        if (!stopWords.has(word)) keywordCounts.set(word, (keywordCounts.get(word) || 0) + 1);
+      });
+  });
+
+  return {
+    topSenders: [...senderCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8),
+    topKeywords: [...keywordCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12),
+    mediaCounts,
+    linkHosts: [...links.reduce((map, link) => map.set(link.host, (map.get(link.host) || 0) + 1), new Map()).entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8),
+  };
+}
+
+function getAlias(sender) {
+  if (!state.archive) return cleanSenderName(sender);
+  return state.archive.senderAliases?.[sender] || autoAliasForSender(sender) || cleanSenderName(sender) || sender;
+}
+
+function senderLabel(sender) {
+  const alias = getAlias(sender);
+  return alias && alias !== sender ? `${alias} (${sender})` : sender;
+}
+
+function getAnnotation(messageId) {
+  if (!state.archive) return {};
+  state.archive.annotations ||= {};
+  state.archive.annotations[messageId] ||= { bookmarked: false, note: "", tags: "" };
+  return state.archive.annotations[messageId];
+}
+
+function hasBookmark(message) {
+  return Boolean(state.archive?.annotations?.[message.id]?.bookmarked);
+}
+
+async function persistArchive() {
+  if (!state.archive) return;
+  await putRecord(ARCHIVE_STORE, state.archive);
+  const index = state.archives.findIndex((archive) => archive.id === state.archive.id);
+  if (index >= 0) state.archives[index] = state.archive;
+}
+
+function scheduleAnnotationSave() {
+  clearTimeout(state.annotationSaveTimer);
+  state.annotationSaveTimer = setTimeout(() => {
+    persistArchive().catch((error) => console.error(error));
+  }, 400);
+}
+
+function renderAliasList() {
+  elements.aliasList.replaceChildren();
+  if (!state.archive) return;
+
+  const query = normalizeSearch(elements.aliasSearch.value);
+  const senderCounts = new Map(state.archive.insights?.topSenders || []);
+  state.archive.messages.forEach((message) => {
+    if (!message.isSystem && !senderCounts.has(message.sender)) {
+      senderCounts.set(message.sender, 0);
+    }
+  });
+
+  const senders = [...state.archive.participants]
+    .filter((sender) => {
+      if (!query) return true;
+      return [sender, getAlias(sender)].some((value) => String(value).toLowerCase().includes(query));
+    })
+    .sort((a, b) => (senderCounts.get(b) || 0) - (senderCounts.get(a) || 0));
+
+  if (!senders.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-line";
+    empty.textContent = "No senders found";
+    elements.aliasList.append(empty);
+    return;
+  }
+
+  senders.slice(0, 80).forEach((sender) => {
+    const item = document.createElement("label");
+    item.className = "alias-item";
+    const count = state.archive.messages.filter((message) => message.sender === sender).length;
+    item.innerHTML = `
+      <span>
+        <strong></strong>
+        <small></small>
+      </span>
+      <input type="text" autocomplete="off">
+    `;
+    item.querySelector("strong").textContent = cleanSenderName(sender);
+    item.querySelector("small").textContent = `${formatNumber(count)} messages`;
+    const input = item.querySelector("input");
+    input.value = state.archive.senderAliases?.[sender] || "";
+    input.placeholder = isPhoneSender(sender) ? "Add name" : "Alias";
+    input.dataset.sender = sender;
+    elements.aliasList.append(item);
+  });
+}
+
+async function saveAliases() {
+  if (!state.archive) return;
+
+  elements.aliasList.querySelectorAll("input[data-sender]").forEach((input) => {
+    const sender = input.dataset.sender;
+    const value = input.value.trim();
+    if (value) {
+      state.archive.senderAliases[sender] = value;
+    } else {
+      delete state.archive.senderAliases[sender];
+    }
+  });
+
+  await persistArchive();
+  populateSenderFilter();
+  renderMessages();
+  renderLinkList();
+  renderInsights();
+  setStatus("Aliases saved.");
+}
+
+function renderLinkList() {
+  elements.linkList.replaceChildren();
+  if (!state.archive) return;
+
+  const links = state.archive.links || [];
+  if (!links.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-line";
+    empty.textContent = "No links found";
+    elements.linkList.append(empty);
+    return;
+  }
+
+  links.slice(0, 60).forEach((link) => {
+    const item = document.createElement("div");
+    item.className = "link-item";
+    item.innerHTML = `
+      <a target="_blank" rel="noreferrer"></a>
+      <span></span>
+      <button type="button">Jump</button>
+    `;
+    const anchor = item.querySelector("a");
+    anchor.href = link.url;
+    anchor.textContent = link.host;
+    item.querySelector("span").textContent = `${senderLabel(link.sender)} · ${dateLabel(link.timestamp)}`;
+    item.querySelector("button").addEventListener("click", () => focusMessage(link.messageId));
+    elements.linkList.append(item);
+  });
+}
+
+function renderInsights() {
+  elements.insightList.replaceChildren();
+  if (!state.archive) return;
+
+  const insights = state.archive.insights || buildInsights(state.archive.messages, state.archive.links || []);
+  const groups = [
+    ["Top senders", insights.topSenders?.map(([sender, count]) => [senderLabel(sender), count]) || []],
+    ["Link domains", insights.linkHosts || []],
+    ["Keywords", insights.topKeywords || []],
+    ["Media", Object.entries(insights.mediaCounts || {}).filter(([, count]) => count)],
+  ];
+
+  groups.forEach(([title, rows]) => {
+    const group = document.createElement("div");
+    group.className = "insight-group";
+    const heading = document.createElement("h3");
+    heading.textContent = title;
+    group.append(heading);
+
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "None yet";
+      group.append(empty);
+    } else {
+      rows.slice(0, 8).forEach(([label, count]) => {
+        const row = document.createElement("div");
+        row.className = "insight-row";
+        row.innerHTML = "<span></span><strong></strong>";
+        row.querySelector("span").textContent = label;
+        row.querySelector("strong").textContent = formatNumber(count);
+        group.append(row);
+      });
+    }
+
+    elements.insightList.append(group);
+  });
+}
+
 async function handleImport() {
   const file = elements.chatFile.files[0];
   if (!file) {
@@ -160,7 +423,10 @@ async function handleImport() {
     const chatText = await file.text();
     const messages = parseChatExport(chatText, mediaData.lookup);
     const participants = [...new Set(messages.filter((message) => !message.isSystem).map((message) => message.sender))].sort();
+    const senderAliases = Object.fromEntries(participants.map((sender) => [sender, autoAliasForSender(sender)]).filter(([, alias]) => alias));
+    const links = collectLinks(messages);
     const stats = summarizeArchive(messages, mediaData.records.length);
+    stats.links = links.length;
     const archive = {
       id: archiveId,
       title: archiveTitleFromFile(file),
@@ -168,6 +434,10 @@ async function handleImport() {
       importedAt: new Date().toISOString(),
       messages,
       participants,
+      senderAliases,
+      annotations: {},
+      links,
+      insights: buildInsights(messages, links),
       stats,
     };
 
@@ -188,7 +458,7 @@ async function handleImport() {
 }
 
 async function loadArchives() {
-  state.archives = (await getAll(ARCHIVE_STORE)).sort((a, b) => b.importedAt.localeCompare(a.importedAt));
+  state.archives = (await getAll(ARCHIVE_STORE)).map(ensureArchiveShape).sort((a, b) => b.importedAt.localeCompare(a.importedAt));
   renderArchiveList();
 }
 
@@ -243,6 +513,9 @@ async function loadArchive(archiveId) {
 
   updateArchiveMeta();
   populateSenderFilter();
+  renderAliasList();
+  renderLinkList();
+  renderInsights();
   renderArchiveList();
   renderMessages();
 }
@@ -261,7 +534,7 @@ function updateArchiveMeta() {
   elements.statMessages.textContent = formatNumber(archive.stats.messages);
   elements.statMedia.textContent = formatNumber(archive.stats.mediaFiles);
   elements.statSenders.textContent = formatNumber(archive.stats.senders);
-  elements.statDates.textContent = formatNumber(archive.stats.dates);
+  elements.statLinks.textContent = formatNumber(archive.stats.links || 0);
   elements.chatTitle.textContent = archive.title;
   elements.chatSubtitle.textContent = `Imported ${imported} from ${archive.sourceFile}`;
 }
@@ -271,7 +544,7 @@ function populateSenderFilter() {
   elements.senderFilter.replaceChildren(new Option("All senders", ""));
 
   state.archive.participants.forEach((sender) => {
-    elements.senderFilter.append(new Option(sender, sender));
+    elements.senderFilter.append(new Option(senderLabel(sender), sender));
   });
 
   elements.senderFilter.value = state.archive.participants.includes(current) ? current : "";
@@ -307,16 +580,20 @@ function filteredMessages() {
   return state.archive.messages.filter((message) => {
     if (sender && message.sender !== sender) return false;
     if (type) {
+      if (type === "bookmarked" && !hasBookmark(message)) return false;
+      if (type === "link" && !(message.urls && message.urls.length)) return false;
       if (type === "missing" && !message.missingMedia) return false;
-      if (type !== "missing" && message.mediaType !== type) return false;
+      if (!["bookmarked", "link", "missing"].includes(type) && message.mediaType !== type) return false;
     }
     if (!query) return true;
 
     return [
       message.sender,
+      getAlias(message.sender),
       message.text,
       message.rawText,
       message.mediaName,
+      ...(message.urls || []),
     ].some((value) => String(value || "").toLowerCase().includes(query));
   });
 }
@@ -339,6 +616,30 @@ function highlightText(text, query) {
   }
 
   if (cursor < text.length) fragment.append(document.createTextNode(text.slice(cursor)));
+  return fragment;
+}
+
+function renderLinkedText(text, query) {
+  const fragment = document.createDocumentFragment();
+  const urlPattern = /(https?:\/\/[^\s<>()\]]+)/gi;
+  let cursor = 0;
+
+  for (const match of text.matchAll(urlPattern)) {
+    const url = match[0].replace(/[.,;!?]+$/g, "");
+    if (match.index > cursor) {
+      fragment.append(highlightText(text.slice(cursor, match.index), query));
+    }
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.className = "inline-link";
+    link.textContent = url;
+    fragment.append(link);
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < text.length) fragment.append(highlightText(text.slice(cursor), query));
   return fragment;
 }
 
@@ -440,18 +741,46 @@ function renderMessages() {
 
     const node = elements.messageTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.date = day;
+    node.dataset.messageId = message.id;
     node.classList.add(message.isSystem ? "system" : message.sender === firstSender ? "outgoing" : "incoming");
 
-    node.querySelector(".message-sender").textContent = message.sender;
+    node.querySelector(".message-sender").textContent = senderLabel(message.sender);
     node.querySelector(".message-media").append(renderMedia(message));
 
     const textTarget = node.querySelector(".message-text");
     const displayText = message.text || (message.mediaName && !message.missingMedia ? message.mediaName : "");
-    textTarget.append(highlightText(displayText, query));
+    textTarget.append(renderLinkedText(displayText, query));
     textTarget.hidden = !displayText;
 
     const typeTarget = node.querySelector(".message-type");
-    typeTarget.textContent = message.mediaType === "text" || message.mediaType === "system" ? "" : message.mediaType;
+    const annotation = getAnnotation(message.id);
+    const tags = annotation.tags ? `#${annotation.tags.split(",").map((tag) => tag.trim()).filter(Boolean).join(" #")}` : "";
+    typeTarget.textContent = tags || (message.mediaType === "text" || message.mediaType === "system" ? "" : message.mediaType);
+
+    const bookmark = node.querySelector(".bookmark-button");
+    bookmark.classList.toggle("active", Boolean(annotation.bookmarked));
+    bookmark.textContent = annotation.bookmarked ? "★" : "☆";
+    bookmark.addEventListener("click", () => {
+      annotation.bookmarked = !annotation.bookmarked;
+      bookmark.classList.toggle("active", annotation.bookmarked);
+      bookmark.textContent = annotation.bookmarked ? "★" : "☆";
+      scheduleAnnotationSave();
+      if (elements.typeFilter.value === "bookmarked") renderMessages();
+    });
+
+    const noteInput = node.querySelector(".note-input");
+    const tagInput = node.querySelector(".tag-input");
+    noteInput.value = annotation.note || "";
+    tagInput.value = annotation.tags || "";
+    noteInput.addEventListener("input", () => {
+      annotation.note = noteInput.value;
+      scheduleAnnotationSave();
+    });
+    tagInput.addEventListener("input", () => {
+      annotation.tags = tagInput.value;
+      typeTarget.textContent = tagInput.value ? `#${tagInput.value.split(",").map((tag) => tag.trim()).filter(Boolean).join(" #")}` : "";
+      scheduleAnnotationSave();
+    });
 
     const time = node.querySelector("time");
     time.dateTime = message.timestamp;
@@ -462,6 +791,25 @@ function renderMessages() {
 
   const total = state.archive.messages.length;
   elements.resultBar.textContent = `${formatNumber(messages.length)} of ${formatNumber(total)} messages`;
+}
+
+function focusMessage(messageId) {
+  if (!state.archive) return;
+
+  if (!state.archive.messages.some((message) => message.id === messageId)) return;
+  const current = elements.messageList.querySelector(`[data-message-id="${CSS.escape(messageId)}"]`);
+  if (current) {
+    current.scrollIntoView({ behavior: "smooth", block: "center" });
+    current.classList.add("focused-message");
+    setTimeout(() => current.classList.remove("focused-message"), 1800);
+    return;
+  }
+
+  elements.searchInput.value = "";
+  elements.senderFilter.value = "";
+  elements.typeFilter.value = "";
+  renderMessages();
+  requestAnimationFrame(() => focusMessage(messageId));
 }
 
 function jumpToDate() {
@@ -488,6 +836,8 @@ async function init() {
   elements.senderFilter.addEventListener("change", renderMessages);
   elements.typeFilter.addEventListener("change", renderMessages);
   elements.dateJump.addEventListener("change", jumpToDate);
+  elements.aliasSearch.addEventListener("input", renderAliasList);
+  elements.saveAliases.addEventListener("click", saveAliases);
 }
 
 init().catch((error) => {

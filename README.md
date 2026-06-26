@@ -24,6 +24,13 @@ The original use case was a stock market cohort group where members shared text,
 - Search messages by keyword.
 - Filter by sender.
 - Filter by media type.
+- Keep search and filter controls visible while scrolling.
+- Add sender aliases for phone-number participants.
+- Browse shared links in a dedicated links panel.
+- Open URLs in a separate browser tab.
+- Bookmark important messages.
+- Add personal notes and tags to messages.
+- Review lightweight archive insights such as top senders, link domains, keywords, and media counts.
 - Jump to a specific date.
 - Store imported archives locally in the browser using IndexedDB.
 
@@ -86,22 +93,33 @@ IMG-20260601-WA0001.jpg (file attached)
 
 ## Current Version
 
-V1 - WhatsApp export viewer
+V2 - WhatsApp export viewer with research tools
 
-This version focuses on preserving and browsing an exported WhatsApp chat locally.
+This version focuses on preserving, browsing, and researching an exported WhatsApp chat locally.
+
+## AI Ideas
+
+Future AI-assisted features could include:
+
+- Summaries by week or day.
+- Stock ticker extraction and topic grouping.
+- Automatic tagging for chart-analysis, breakout, risk, earnings, volume, and resources.
+- Study guides and flashcards from cohort discussions.
+- Link and video resource summaries.
+- Question answering over the archive.
+- Timeline of sessions, homework, links, and key takeaways.
+
+Any AI workflow should ask for explicit approval before sending private chat content or phone numbers to an external API.
 
 ## Planned Improvements
 
-Possible V2 improvements:
+Possible future improvements:
 
-- Bookmarks for important messages.
-- Personal notes on messages.
-- Tags such as chart-analysis, breakout, risk, or homework.
-- Better large-archive performance.
-- Export/import saved archive metadata.
+- Better large-archive performance with virtualization.
+- Export/import saved alias, bookmark, note, and tag metadata.
 - Multiple group archive management.
 - Advanced date and media gallery views.
-- Local SQLite or file-backed storage option.
+- Optional local SQLite or file-backed storage.
 
 ## License
 

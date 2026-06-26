@@ -50,8 +50,29 @@
             <div><dt>Messages</dt><dd id="statMessages">0</dd></div>
             <div><dt>Media</dt><dd id="statMedia">0</dd></div>
             <div><dt>Senders</dt><dd id="statSenders">0</dd></div>
-            <div><dt>Dates</dt><dd id="statDates">0</dd></div>
+            <div><dt>Links</dt><dd id="statLinks">0</dd></div>
           </dl>
+        </section>
+
+        <section class="panel identity-panel" aria-label="Sender aliases">
+          <div class="section-heading">
+            <h2>People</h2>
+            <button id="saveAliases" class="icon-button" type="button" title="Save aliases" aria-label="Save aliases">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+            </button>
+          </div>
+          <input id="aliasSearch" class="panel-search" type="search" placeholder="Find sender">
+          <div id="aliasList" class="alias-list"></div>
+        </section>
+
+        <section class="panel links-panel" aria-label="Shared links">
+          <h2>Links</h2>
+          <div id="linkList" class="link-list"></div>
+        </section>
+
+        <section class="panel insights-panel" aria-label="Archive insights">
+          <h2>Insights</h2>
+          <div id="insightList" class="insight-list"></div>
         </section>
       </aside>
 
@@ -72,10 +93,12 @@
             <select id="typeFilter" aria-label="Type filter">
               <option value="">All types</option>
               <option value="text">Text</option>
+              <option value="link">Links</option>
               <option value="image">Images</option>
               <option value="video">Videos</option>
               <option value="audio">Audio</option>
               <option value="document">Documents</option>
+              <option value="bookmarked">Bookmarked</option>
               <option value="missing">Missing media</option>
               <option value="system">System</option>
             </select>
@@ -100,9 +123,21 @@
           <div class="message-media"></div>
           <div class="message-text"></div>
           <div class="message-footer">
+            <button class="bookmark-button" type="button" title="Bookmark message" aria-label="Bookmark message">☆</button>
             <span class="message-type"></span>
             <time></time>
           </div>
+          <details class="message-notes">
+            <summary>Notes</summary>
+            <label>
+              <span>Note</span>
+              <textarea class="note-input" rows="2"></textarea>
+            </label>
+            <label>
+              <span>Tags</span>
+              <input class="tag-input" type="text" placeholder="chart-analysis, risk">
+            </label>
+          </details>
         </div>
       </article>
     </template>
