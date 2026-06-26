@@ -135,7 +135,6 @@ h1 {
 .toolbar input,
 .toolbar select,
 .panel-search,
-.alias-item input,
 .message-notes input,
 .message-notes textarea {
   width: 100%;
@@ -271,7 +270,6 @@ svg {
   padding: 0 10px;
 }
 
-.alias-list,
 .link-list,
 .insight-list {
   display: grid;
@@ -280,17 +278,6 @@ svg {
   overflow: auto;
 }
 
-.alias-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 7px;
-  padding: 9px;
-  border-radius: 8px;
-  background: white;
-}
-
-.alias-item strong,
-.alias-item small,
 .link-item a,
 .link-item span,
 .insight-row span {
@@ -299,21 +286,10 @@ svg {
   white-space: nowrap;
 }
 
-.alias-item strong {
-  display: block;
-  font-size: 0.84rem;
-}
-
-.alias-item small,
 .link-item span,
 .insight-group p {
   color: var(--muted);
   font-size: 0.74rem;
-}
-
-.alias-item input {
-  min-height: 34px;
-  padding: 0 9px;
 }
 
 .link-item {

@@ -26,9 +26,6 @@ const elements = {
   statMedia: document.querySelector("#statMedia"),
   statSenders: document.querySelector("#statSenders"),
   statLinks: document.querySelector("#statLinks"),
-  aliasSearch: document.querySelector("#aliasSearch"),
-  aliasList: document.querySelector("#aliasList"),
-  saveAliases: document.querySelector("#saveAliases"),
   linkList: document.querySelector("#linkList"),
   insightList: document.querySelector("#insightList"),
   chatTitle: document.querySelector("#chatTitle"),
@@ -304,75 +301,6 @@ function scheduleAnnotationSave() {
   }, 400);
 }
 
-function renderAliasList() {
-  elements.aliasList.replaceChildren();
-  if (!state.archive) return;
-
-  const query = normalizeSearch(elements.aliasSearch.value);
-  const senderCounts = new Map(state.archive.insights?.topSenders || []);
-  state.archive.messages.forEach((message) => {
-    if (!message.isSystem && !senderCounts.has(message.sender)) {
-      senderCounts.set(message.sender, 0);
-    }
-  });
-
-  const senders = [...state.archive.participants]
-    .filter((sender) => {
-      if (!query) return true;
-      return [sender, getAlias(sender)].some((value) => String(value).toLowerCase().includes(query));
-    })
-    .sort((a, b) => (senderCounts.get(b) || 0) - (senderCounts.get(a) || 0));
-
-  if (!senders.length) {
-    const empty = document.createElement("p");
-    empty.className = "status-line";
-    empty.textContent = "No senders found";
-    elements.aliasList.append(empty);
-    return;
-  }
-
-  senders.slice(0, 80).forEach((sender) => {
-    const item = document.createElement("label");
-    item.className = "alias-item";
-    const count = state.archive.messages.filter((message) => message.sender === sender).length;
-    item.innerHTML = `
-      <span>
-        <strong></strong>
-        <small></small>
-      </span>
-      <input type="text" autocomplete="off">
-    `;
-    item.querySelector("strong").textContent = cleanSenderName(sender);
-    item.querySelector("small").textContent = `${formatNumber(count)} messages`;
-    const input = item.querySelector("input");
-    input.value = state.archive.senderAliases?.[sender] || "";
-    input.placeholder = isPhoneSender(sender) ? "Add name" : "Alias";
-    input.dataset.sender = sender;
-    elements.aliasList.append(item);
-  });
-}
-
-async function saveAliases() {
-  if (!state.archive) return;
-
-  elements.aliasList.querySelectorAll("input[data-sender]").forEach((input) => {
-    const sender = input.dataset.sender;
-    const value = input.value.trim();
-    if (value) {
-      state.archive.senderAliases[sender] = value;
-    } else {
-      delete state.archive.senderAliases[sender];
-    }
-  });
-
-  await persistArchive();
-  populateSenderFilter();
-  renderMessages();
-  renderLinkList();
-  renderInsights();
-  setStatus("Aliases saved.");
-}
-
 function renderLinkList() {
   elements.linkList.replaceChildren();
   if (!state.archive) return;
@@ -547,7 +475,6 @@ async function loadArchive(archiveId) {
 
   updateArchiveMeta();
   populateSenderFilter();
-  renderAliasList();
   renderLinkList();
   renderInsights();
   renderArchiveList();
@@ -868,8 +795,6 @@ async function init() {
   elements.senderFilter.addEventListener("change", renderMessages);
   elements.typeFilter.addEventListener("change", renderMessages);
   elements.dateJump.addEventListener("change", jumpToDate);
-  elements.aliasSearch.addEventListener("input", renderAliasList);
-  elements.saveAliases.addEventListener("click", saveAliases);
 }
 
 init().catch((error) => {
