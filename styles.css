@@ -532,7 +532,6 @@ svg {
   font-weight: 800;
 }
 
-.message-row.outgoing .message-sender,
 .message-row.system .message-sender {
   display: none;
 }

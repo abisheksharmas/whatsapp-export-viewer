@@ -51,6 +51,26 @@ const state = {
   annotationSaveTimer: null,
 };
 
+const DEFAULT_SENDER_ALIASES = {
+  "+91 86302 81239": "Nirvair",
+  "+91 78991 11006": "Srikanth",
+  "+91 99728 24301": "Vishnu",
+  "+91 88675 33728": "Sanat",
+  "+91 74052 80638": "Shukan",
+  "+91 80564 01144": "Abid",
+  "+91 97875 55277": "Fayaz",
+  "+91 94821 16789": "Gowri",
+  "+91 89587 98294": "Prajjwal",
+  "+91 81056 95589": "Mahua",
+  "+91 98307 21556": "Ruchika",
+  "+91 98493 01879": "Neeraj",
+  "+91 63835 02397": "Karthik",
+  "+91 99019 54544": "Jaya",
+  "+91 94452 17913": "Suresh",
+};
+
+const MENTOR_SENDERS = new Set(["+91 86302 81239", "+91 99728 24301"]);
+
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -157,6 +177,7 @@ function isPhoneSender(sender) {
 }
 
 function autoAliasForSender(sender) {
+  if (DEFAULT_SENDER_ALIASES[sender]) return DEFAULT_SENDER_ALIASES[sender];
   if (isPhoneSender(sender)) return "";
   const cleaned = cleanSenderName(sender);
   return cleaned === sender ? "" : cleaned;
@@ -164,12 +185,21 @@ function autoAliasForSender(sender) {
 
 function ensureArchiveShape(archive) {
   archive.senderAliases ||= {};
+  applyDefaultAliases(archive);
   archive.annotations ||= {};
   archive.links ||= collectLinks(archive.messages || []);
   archive.insights ||= buildInsights(archive.messages || [], archive.links || []);
   archive.stats ||= summarizeArchive(archive.messages || [], 0);
   archive.stats.links = archive.links.length;
   return archive;
+}
+
+function applyDefaultAliases(archive) {
+  Object.entries(DEFAULT_SENDER_ALIASES).forEach(([sender, alias]) => {
+    if (!archive.senderAliases[sender]) {
+      archive.senderAliases[sender] = alias;
+    }
+  });
 }
 
 function collectLinks(messages) {
@@ -241,8 +271,12 @@ function getAlias(sender) {
 }
 
 function senderLabel(sender) {
-  const alias = getAlias(sender);
-  return alias && alias !== sender ? `${alias} (${sender})` : sender;
+  return getAlias(sender);
+}
+
+function isMentorSender(sender) {
+  const alias = getAlias(sender).toLowerCase();
+  return MENTOR_SENDERS.has(sender) || alias === "nirvair" || alias === "vishnu";
 }
 
 function getAnnotation(messageId) {
@@ -725,8 +759,6 @@ function renderMessages() {
   }
 
   let lastDate = "";
-  const firstSender = state.archive.messages.find((message) => !message.isSystem)?.sender || "";
-
   messages.forEach((message) => {
     const day = message.timestamp.slice(0, 10);
     if (day !== lastDate) {
@@ -742,7 +774,7 @@ function renderMessages() {
     const node = elements.messageTemplate.content.firstElementChild.cloneNode(true);
     node.dataset.date = day;
     node.dataset.messageId = message.id;
-    node.classList.add(message.isSystem ? "system" : message.sender === firstSender ? "outgoing" : "incoming");
+    node.classList.add(message.isSystem ? "system" : isMentorSender(message.sender) ? "outgoing" : "incoming");
 
     node.querySelector(".message-sender").textContent = senderLabel(message.sender);
     node.querySelector(".message-media").append(renderMedia(message));
